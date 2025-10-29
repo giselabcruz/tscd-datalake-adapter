@@ -127,8 +127,6 @@ public class Main {
                 "backend", "S3"
         ));
     }
-
-    // Config dump útil para diagnosticar env en ejecución (no expone secretos)
     private static void config(Context ctx) {
         ctx.json(Map.of(
                 "region", AWS_REGION,

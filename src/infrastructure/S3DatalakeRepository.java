@@ -1,27 +1,15 @@
 package src.infrastructure;
 
-import software.amazon.awssdk.services.s3.S3Configuration;
 import src.application.ports.DatalakeRepository;
 
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
-import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-
 import software.amazon.awssdk.core.sync.RequestBody;
-
 import software.amazon.awssdk.regions.Region;
-
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
-
-import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
-import software.amazon.awssdk.services.s3.model.CreateBucketConfiguration;
-import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
-import software.amazon.awssdk.services.s3.model.PutObjectRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.S3Exception;
-import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.IOException;
 import java.net.URI;
@@ -42,37 +30,28 @@ public class S3DatalakeRepository implements DatalakeRepository {
     private static final DateTimeFormatter HOUR_FMT = DateTimeFormatter.ofPattern("HH");
 
     public S3DatalakeRepository(String region, String bucket, String prefix) {
-        String localstackEndpoint = firstNonBlank(System.getenv("S3_ENDPOINT_URL"),
-                System.getenv("LOCALSTACK_ENDPOINT"));
+        String endpoint = firstNonBlank(System.getenv("S3_ENDPOINT_URL"), "http://localhost:4566");
 
-        S3ClientBuilder builder = S3Client.builder().region(Region.of(region));
-
-        if (localstackEndpoint != null && !localstackEndpoint.isBlank()) {
-            builder = builder
-                    .endpointOverride(URI.create(localstackEndpoint))          // ej: http://localstack:4566
-                    .credentialsProvider(StaticCredentialsProvider.create(     // credenciales estáticas sin token
-                            AwsBasicCredentials.create(
-                                    envOr("AWS_ACCESS_KEY_ID", "test"),
-                                    envOr("AWS_SECRET_ACCESS_KEY", "test")
-                            )
-                    ));
-        S3Client.builder()
-                    .serviceConfiguration(S3Configuration.builder()
-                            .pathStyleAccessEnabled(true)
-                            .build())
-                    .build();
-            System.out.println("[CONF] Using LocalStack S3 endpoint: " + localstackEndpoint);
-        } else {
-            builder = builder.credentialsProvider(DefaultCredentialsProvider.create());
-            System.out.println("[CONF] Using AWS S3 (real) in region: " + region);
-        }
+        S3ClientBuilder builder = S3Client.builder()
+                .region(Region.of(region == null || region.isBlank() ? "us-east-1" : region))
+                .endpointOverride(URI.create(endpoint))
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create(
+                                envOr("AWS_ACCESS_KEY_ID", "test"),
+                                envOr("AWS_SECRET_ACCESS_KEY", "test")
+                        )))
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build());
 
         this.s3 = builder.build();
         this.bucket = Objects.requireNonNull(bucket, "bucket is required");
+
         String p = prefix == null ? "" : prefix.trim();
         this.basePrefix = p.isEmpty() ? "" : (stripSlashes(p) + "/");
 
-        ensureBucketExists(this.bucket, region, localstackEndpoint != null && !localstackEndpoint.isBlank());
+        ensureBucketExists(this.bucket);
+        System.out.println("[CONF] LocalStack S3 -> " + endpoint + " | bucket=" + this.bucket);
     }
 
     private static String stripSlashes(String s) {
@@ -82,11 +61,10 @@ public class S3DatalakeRepository implements DatalakeRepository {
         return t;
     }
 
-    private String day(LocalDateTime ts) { return ts.format(DATE_FMT); }
+    private String day(LocalDateTime ts)  { return ts.format(DATE_FMT); }
     private String hour(LocalDateTime ts) { return ts.format(HOUR_FMT); }
 
     private String folderFor(LocalDateTime ts) {
-        // Almacenamos bajo <prefix>/datalake/AAAAmmdd/HH/
         return basePrefix + "datalake/" + day(ts) + "/" + hour(ts) + "/";
     }
 
@@ -102,27 +80,20 @@ public class S3DatalakeRepository implements DatalakeRepository {
             throw new IOException("Missing source files for book " + bookId + " at " + stagingDir.toAbsolutePath());
         }
 
-        String bodyKey   = bodyKey(bookId, timestamp);
-        String headerKey = headerKey(bookId, timestamp);
-
         try {
-            s3.putObject(
-                    PutObjectRequest.builder()
+            s3.putObject(PutObjectRequest.builder()
                             .bucket(bucket)
-                            .key(bodyKey)
+                            .key(bodyKey(bookId, timestamp))
                             .contentType("text/plain; charset=utf-8")
                             .build(),
-                    RequestBody.fromFile(bodySrc)
-            );
+                    RequestBody.fromFile(bodySrc));
 
-            s3.putObject(
-                    PutObjectRequest.builder()
+            s3.putObject(PutObjectRequest.builder()
                             .bucket(bucket)
-                            .key(headerKey)
+                            .key(headerKey(bookId, timestamp))
                             .contentType("text/plain; charset=utf-8")
                             .build(),
-                    RequestBody.fromFile(headerSrc)
-            );
+                    RequestBody.fromFile(headerSrc));
 
             try {
                 Files.deleteIfExists(bodySrc);
@@ -142,14 +113,12 @@ public class S3DatalakeRepository implements DatalakeRepository {
         try {
             String token = null;
             do {
-                ListObjectsV2Response resp = s3.listObjectsV2(
-                        ListObjectsV2Request.builder()
-                                .bucket(bucket)
-                                .prefix(searchPrefix)
-                                .continuationToken(token)
-                                .maxKeys(1000)
-                                .build()
-                );
+                ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .prefix(searchPrefix)
+                        .continuationToken(token)
+                        .maxKeys(1000)
+                        .build());
                 for (S3Object obj : resp.contents()) {
                     if (obj.key().endsWith(needle)) return true;
                 }
@@ -168,14 +137,12 @@ public class S3DatalakeRepository implements DatalakeRepository {
             Set<Integer> ids = new HashSet<>();
             String token = null;
             do {
-                ListObjectsV2Response resp = s3.listObjectsV2(
-                        ListObjectsV2Request.builder()
-                                .bucket(bucket)
-                                .prefix(searchPrefix)
-                                .continuationToken(token)
-                                .maxKeys(1000)
-                                .build()
-                );
+                ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
+                        .bucket(bucket)
+                        .prefix(searchPrefix)
+                        .continuationToken(token)
+                        .maxKeys(1000)
+                        .build());
                 for (S3Object obj : resp.contents()) {
                     String key = obj.key();
                     if (key.endsWith(".body.txt")) {
@@ -201,27 +168,17 @@ public class S3DatalakeRepository implements DatalakeRepository {
         return "datalake/" + day(timestamp) + "/" + hour(timestamp) + "/" + bookId;
     }
 
-    private void ensureBucketExists(String bucket, String region, boolean isLocalstack) {
+    private void ensureBucketExists(String bucket) {
         try {
             s3.headBucket(HeadBucketRequest.builder().bucket(bucket).build());
         } catch (S3Exception e) {
             try {
-                if (isLocalstack) {
-                    s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
-                } else {
-                    s3.createBucket(CreateBucketRequest.builder()
-                            .bucket(bucket)
-                            .createBucketConfiguration(
-                                    CreateBucketConfiguration.builder()
-                                            .locationConstraint(region.equals("us-east-1") ? null : region)
-                                            .build()
-                            ).build());
-                }
+                // En LocalStack: sin LocationConstraint
+                s3.createBucket(CreateBucketRequest.builder().bucket(bucket).build());
                 System.out.println("[CONF] Created bucket: " + bucket);
             } catch (S3Exception ce) {
-                // Si ya existe por condiciones de carrera u otra causa, lo ignoramos si es 409.
-                if (!"BucketAlreadyOwnedByYou".equals(safeAwsCode(ce)) &&
-                        !"BucketAlreadyExists".equals(safeAwsCode(ce))) {
+                String code = safeAwsCode(ce);
+                if (!"BucketAlreadyOwnedByYou".equals(code) && !"BucketAlreadyExists".equals(code)) {
                     throw ce;
                 }
             }
