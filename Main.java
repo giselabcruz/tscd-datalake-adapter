@@ -13,10 +13,10 @@ import infrastructure.S3DatalakeRepository;
 public class Main {
 
     private static final String STAGING_PATH = env("STAGING_PATH", "staging/downloads");
-    private static final String AWS_REGION   = env("AWS_REGION", "eu-west-1");
-    private static final String S3_BUCKET    = env("S3_BUCKET", "mi-bucket-datalake");
+    private static final String AWS_REGION   = env("AWS_REGION", "us-east-1");
+    private static final String S3_BUCKET    = env("S3_BUCKET", "my-bucket-datalake");
     private static final String S3_PREFIX    = env("S3_PREFIX", "datalake");
-    private static final int TOTAL_BOOKS     = intEnv("TOTAL_BOOKS", 70000);
+    private static final int TOTAL_BOOKS     = intEnv("TOTAL_BOOKS", 100);
     private static final int MAX_RETRIES     = intEnv("MAX_RETRIES", 10);
     private static final int PORT            = intEnv("PORT", 7070);
 
