@@ -1,11 +1,15 @@
+package src;
+
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
+
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.List;
+
 import src.application.ports.DatalakeRepository;
 import src.application.usecase.IngestionService;
 import src.infrastructure.S3DatalakeRepository;
@@ -24,6 +28,17 @@ public class Main {
 
     public static void main(String[] args) {
         System.out.println("[MAIN] Booting ingestion service + HTTP API...");
+        System.out.println("[CONF] REGION=" + AWS_REGION
+                + " BUCKET=" + S3_BUCKET
+                + " PREFIX=" + S3_PREFIX
+                + " STAGING_PATH=" + STAGING_PATH
+                + " TOTAL_BOOKS=" + TOTAL_BOOKS
+                + " MAX_RETRIES=" + MAX_RETRIES
+                + " PORT=" + PORT
+                + " S3_ENDPOINT_URL=" + env("S3_ENDPOINT_URL", "<none>")
+                + " LOCALSTACK_ENDPOINT=" + env("LOCALSTACK_ENDPOINT", "<none>")
+        );
+
         try {
             Files.createDirectories(Paths.get(STAGING_PATH));
         } catch (Exception e) {
@@ -46,7 +61,13 @@ public class Main {
 
         app.start(PORT);
 
-        app.get("/health", ctx -> ctx.json(Map.of("status", "ok", "backend", "S3")));
+        app.get("/health", ctx -> ctx.json(Map.of(
+                "status", "ok",
+                "backend", "S3",
+                "region", AWS_REGION,
+                "bucket", S3_BUCKET
+        )));
+        app.get("/config", Main::config);
         app.post("/ingest/{book_id}", Main::downloadBook);
         app.get("/ingest/status/{book_id}", Main::checkStatus);
         app.get("/ingest/list", Main::listBooks);
@@ -104,6 +125,21 @@ public class Main {
                 "count", books.size(),
                 "books", books,
                 "backend", "S3"
+        ));
+    }
+
+    // Config dump útil para diagnosticar env en ejecución (no expone secretos)
+    private static void config(Context ctx) {
+        ctx.json(Map.of(
+                "region", AWS_REGION,
+                "bucket", S3_BUCKET,
+                "prefix", S3_PREFIX,
+                "staging_path", STAGING_PATH,
+                "total_books", TOTAL_BOOKS,
+                "max_retries", MAX_RETRIES,
+                "port", PORT,
+                "s3_endpoint_url", env("S3_ENDPOINT_URL", "<none>"),
+                "localstack_endpoint", env("LOCALSTACK_ENDPOINT", "<none>")
         ));
     }
 
