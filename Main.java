@@ -6,9 +6,9 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.List;
-import application.ports.DatalakeRepository;
-import application.usecase.IngestionService;
-import infrastructure.S3DatalakeRepository;
+import src.application.ports.DatalakeRepository;
+import src.application.usecase.IngestionService;
+import src.infrastructure.S3DatalakeRepository;
 
 public class Main {
 

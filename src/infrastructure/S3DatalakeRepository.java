@@ -1,6 +1,6 @@
-package infrastructure;
+package src.infrastructure;
 
-import application.ports.DatalakeRepository;
+import src.application.ports.DatalakeRepository;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
