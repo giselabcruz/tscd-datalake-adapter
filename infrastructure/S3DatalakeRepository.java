@@ -24,16 +24,11 @@ public class S3DatalakeRepository implements DatalakeRepository {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter HOUR_FMT = DateTimeFormatter.ofPattern("HH");
 
-
     public S3DatalakeRepository(String region, String bucket, String prefix) {
-        this(
-                S3Client.builder()
-                        .region(Region.of(region))
-                        .credentialsProvider(DefaultCredentialsProvider.create())
-                        .build(),
-                bucket,
-                prefix
-        );
+        this(S3Client.builder()
+                .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build(), bucket, prefix);
     }
 
     public S3DatalakeRepository(S3Client s3Client, String bucket, String prefix) {
@@ -54,7 +49,7 @@ public class S3DatalakeRepository implements DatalakeRepository {
     private String hour(LocalDateTime ts) { return ts.format(HOUR_FMT); }
 
     private String folderFor(LocalDateTime ts) {
-        return basePrefix + "datalake/" + day(ts) + "/" + hour(ts) + "/";
+        return basePrefix + day(ts) + "/" + hour(ts) + "/";
     }
 
     private String bodyKey(int bookId, LocalDateTime ts) {
@@ -69,40 +64,20 @@ public class S3DatalakeRepository implements DatalakeRepository {
     public void saveBook(int bookId, Path stagingDir, LocalDateTime timestamp) throws IOException {
         Path bodySrc = stagingDir.resolve(bookId + "_body.txt");
         Path headerSrc = stagingDir.resolve(bookId + "_header.txt");
-
         if (!Files.exists(bodySrc) || !Files.exists(headerSrc)) {
-            throw new IOException("Missing source files for book " + bookId +
-                    " at " + stagingDir.toAbsolutePath());
+            throw new IOException("Missing source files for book " + bookId + " at " + stagingDir.toAbsolutePath());
         }
-
         String bodyKey = bodyKey(bookId, timestamp);
         String headerKey = headerKey(bookId, timestamp);
-
         try {
-            s3.putObject(
-                    PutObjectRequest.builder()
-                            .bucket(bucket)
-                            .key(bodyKey)
-                            .contentType("text/plain; charset=utf-8")
-                            .build(),
-                    RequestBody.fromFile(bodySrc)
-            );
-
-            s3.putObject(
-                    PutObjectRequest.builder()
-                            .bucket(bucket)
-                            .key(headerKey)
-                            .contentType("text/plain; charset=utf-8")
-                            .build(),
-                    RequestBody.fromFile(headerSrc)
-            );
-
+            s3.putObject(PutObjectRequest.builder().bucket(bucket).key(bodyKey)
+                    .contentType("text/plain; charset=utf-8").build(), RequestBody.fromFile(bodySrc));
+            s3.putObject(PutObjectRequest.builder().bucket(bucket).key(headerKey)
+                    .contentType("text/plain; charset=utf-8").build(), RequestBody.fromFile(headerSrc));
             try {
                 Files.deleteIfExists(bodySrc);
                 Files.deleteIfExists(headerSrc);
-            } catch (IOException ignored) {
-            }
-
+            } catch (IOException ignored) {}
             System.out.println("[INFO] Book " + bookId + " uploaded to s3://" + bucket + "/" + folderFor(timestamp));
         } catch (S3Exception e) {
             throw new IOException("Error uploading book " + bookId + " to S3: " + e.getMessage(), e);
@@ -111,30 +86,19 @@ public class S3DatalakeRepository implements DatalakeRepository {
 
     @Override
     public boolean exists(int bookId) throws IOException {
-        String searchPrefix = basePrefix + "datalake/";
+        String searchPrefix = basePrefix;
         String needle = "/" + bookId + ".body.txt";
-
         try {
             String token = null;
             do {
-                ListObjectsV2Response resp = s3.listObjectsV2(
-                        ListObjectsV2Request.builder()
-                                .bucket(bucket)
-                                .prefix(searchPrefix)
-                                .continuationToken(token)
-                                .maxKeys(1000)
-                                .build()
-                );
-
+                ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
+                        .bucket(bucket).prefix(searchPrefix).continuationToken(token).maxKeys(1000).build());
                 for (S3Object obj : resp.contents()) {
                     String key = obj.key();
-                    if (key.endsWith(needle)) {
-                        return true;
-                    }
+                    if (key.endsWith(needle)) return true;
                 }
                 token = resp.isTruncated() ? resp.nextContinuationToken() : null;
             } while (token != null);
-
             return false;
         } catch (S3Exception e) {
             throw new IOException("Error listing S3 objects for exists(" + bookId + "): " + e.getMessage(), e);
@@ -143,22 +107,13 @@ public class S3DatalakeRepository implements DatalakeRepository {
 
     @Override
     public List<Integer> listBooks() throws IOException {
-        String searchPrefix = basePrefix + "datalake/";
-
+        String searchPrefix = basePrefix;
         try {
             Set<Integer> ids = new HashSet<>();
             String token = null;
-
             do {
-                ListObjectsV2Response resp = s3.listObjectsV2(
-                        ListObjectsV2Request.builder()
-                                .bucket(bucket)
-                                .prefix(searchPrefix)
-                                .continuationToken(token)
-                                .maxKeys(1000)
-                                .build()
-                );
-
+                ListObjectsV2Response resp = s3.listObjectsV2(ListObjectsV2Request.builder()
+                        .bucket(bucket).prefix(searchPrefix).continuationToken(token).maxKeys(1000).build());
                 for (S3Object obj : resp.contents()) {
                     String key = obj.key();
                     if (key.endsWith(".body.txt")) {
@@ -167,17 +122,12 @@ public class S3DatalakeRepository implements DatalakeRepository {
                         int dot = file.indexOf('.');
                         if (dot > 0) {
                             String idStr = file.substring(0, dot);
-                            try {
-                                ids.add(Integer.parseInt(idStr));
-                            } catch (NumberFormatException ignored) {
-                            }
+                            try { ids.add(Integer.parseInt(idStr)); } catch (NumberFormatException ignored) {}
                         }
                     }
                 }
-
                 token = resp.isTruncated() ? resp.nextContinuationToken() : null;
             } while (token != null);
-
             return ids.stream().sorted().collect(Collectors.toList());
         } catch (S3Exception e) {
             throw new IOException("Error listing S3 objects for listBooks(): " + e.getMessage(), e);
@@ -186,6 +136,6 @@ public class S3DatalakeRepository implements DatalakeRepository {
 
     @Override
     public String relativePathFor(int bookId, LocalDateTime timestamp) {
-        return String.format("datalake/%s/%s/%d", day(timestamp), hour(timestamp), bookId);
+        return basePrefix + day(timestamp) + "/" + hour(timestamp) + "/" + bookId;
     }
 }
