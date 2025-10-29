@@ -2,16 +2,22 @@ version: "3.9"
 
 services:
   localstack:
-    image: localstack/localstack:3.4
+    image: localstack/localstack:3.0
     container_name: localstack
     ports:
       - "4566:4566"
-      - "4571:4571"
     environment:
       - SERVICES=s3
       - DEBUG=1
-      - DATA_DIR=/var/lib/localstack/data
-      - AWS_DEFAULT_REGION=eu-west-1
     volumes:
-      - "./localstack_data:/var/lib/localstack"
-      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./.localstack:/var/lib/localstack"
+
+  ingestion-app:
+    build: .
+    container_name: ingestion-app
+    env_file:
+      - .env
+    ports:
+      - "7070:7070"
+    depends_on:
+      - localstack
