@@ -12,18 +12,17 @@ import infrastructure.S3DatalakeRepository;
 
 public class Main {
 
-    private static final String STAGING_PATH = env("STAGING_PATH", "staging/downloads");
-    private static final String AWS_REGION   = env("AWS_REGION", "us-east-1");
-    private static final String S3_BUCKET    = env("S3_BUCKET", "my-bucket-datalake");
-    private static final String S3_PREFIX    = env("S3_PREFIX", "datalake");
-    private static final int TOTAL_BOOKS     = intEnv("TOTAL_BOOKS", 100);
-    private static final int MAX_RETRIES     = intEnv("MAX_RETRIES", 10);
-    private static final int PORT            = intEnv("PORT", 7070);
+    private static final String STAGING_PATH = env("STAGING_PATH");
+    private static final String AWS_REGION   = env("AWS_REGION");
+    private static final String S3_BUCKET    = env("S3_BUCKET");
+    private static final String S3_PREFIX    = env("S3_PREFIX");
+    private static final int TOTAL_BOOKS     = intEnv("TOTAL_BOOKS");
+    private static final int MAX_RETRIES     = intEnv("MAX_RETRIES");
+    private static final int PORT            = intEnv("PORT");
 
     private static IngestionService ingestionService;
 
     public static void main(String[] args) {
-        System.out.println("[MAIN] Booting ingestion service + HTTP API...");
         try {
             Files.createDirectories(Paths.get(STAGING_PATH));
         } catch (Exception e) {
@@ -50,15 +49,12 @@ public class Main {
         app.post("/ingest/{book_id}", Main::downloadBook);
         app.get("/ingest/status/{book_id}", Main::checkStatus);
         app.get("/ingest/list", Main::listBooks);
-
-        System.out.println("[API] Ingestion API running on http://localhost:" + PORT + "/");
     }
 
     private static void downloadBook(Context ctx) {
         Integer bookId = parseBookId(ctx);
         if (bookId == null) return;
 
-        System.out.println("[API] Received ingestion request for book " + bookId);
         boolean staged = ingestionService.downloadBookToStaging(bookId);
         if (!staged) {
             jsonError(ctx, HttpStatus.BAD_REQUEST, "download_failed", "Download failed or invalid book");
@@ -131,18 +127,23 @@ public class Main {
         ));
     }
 
-    private static String env(String key, String def) {
+    private static String env(String key) {
         String v = System.getenv(key);
-        return (v == null || v.isBlank()) ? def : v.trim();
+        if (v == null || v.isBlank()) {
+            throw new IllegalStateException("Missing required environment variable: " + key);
+        }
+        return v.trim();
     }
 
-    private static int intEnv(String key, int def) {
+    private static int intEnv(String key) {
         String v = System.getenv(key);
-        if (v == null || v.isBlank()) return def;
+        if (v == null || v.isBlank()) {
+            throw new IllegalStateException("Missing required environment variable: " + key);
+        }
         try {
             return Integer.parseInt(v.trim());
-        } catch (NumberFormatException ignored) {
-            return def;
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("Invalid integer for environment variable: " + key);
         }
     }
 }
