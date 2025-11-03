@@ -1,10 +1,5 @@
 # Design and Dependency Injection
 
-**Author:** Gisela Belmonte Cruz  
-**Repository:** [https://github.com/giselabcruz/tscd-datalake-adapter](https://github.com/giselabcruz/tscd-datalake-adapter)  
-**Date:** November 2025
-
----
 
 ## 4. Reflection
 
