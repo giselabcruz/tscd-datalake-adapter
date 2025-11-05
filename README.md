@@ -8,7 +8,7 @@
 In the original version, the project directly depended on the **AWS SDK for Java**, meaning that all storage logic was tightly coupled to the **S3 API** — including client creation, credentials, and endpoints.  
 As a result, switching to another provider (such as Azure Blob Storage or a local file system) would have required modifying large parts of the code.
 
-After the redesign, this dependency was isolated into a dedicated adapter (`S3StorageAdapter`), while the application interacts only through a common interface (`ObjectStoragePort`).  
+After the redesign, this dependency was isolated into a dedicated adapter (`S3StorageAdapter`), while the com.ingestion.application interacts only through a common interface (`ObjectStoragePort`).  
 This effectively removes vendor lock-in and allows the system to change the storage backend without altering business logic.
 
 ---
@@ -16,7 +16,7 @@ This effectively removes vendor lock-in and allows the system to change the stor
 ### 2. What impact does this redesign have on the project's maintainability?
 
 The redesign has a **highly positive impact**.  
-The system is now divided into **clearly defined layers**: application, domain, and infrastructure.  
+The system is now divided into **clearly defined layers**: com.ingestion.application, domain, and com.ingestion.infrastructure.  
 For example, the `IngestionService` class no longer needs to know how a file is stored — it simply delegates the operation to a “datalake” that follows a defined contract.
 
 This separation makes it easy to add a new storage provider or change configurations by only creating a new adapter or updating environment variables.  
@@ -41,14 +41,14 @@ The following design principles have been the most relevant in this refactor:
 
 - **DIP (Dependency Inversion Principle):**  
   High-level modules depend on abstractions rather than concrete implementations.  
-  The application no longer depends on AWS S3 directly, but on the `ObjectStoragePort` interface.
+  The com.ingestion.application no longer depends on AWS S3 directly, but on the `ObjectStoragePort` interface.
 
 - **OCP (Open/Closed Principle):**  
   The system is open for extension (e.g., adding Azure or LocalFS adapters) but closed for modification.  
   New providers can be integrated without changing existing code.
 
 - **SoC (Separation of Concerns):**  
-  Business logic, infrastructure, and configuration are separated, avoiding cross-responsibilities and improving readability and maintenance.
+  Business logic, com.ingestion.infrastructure, and configuration are separated, avoiding cross-responsibilities and improving readability and maintenance.
 
 Thanks to these principles, the system is no longer tied to a specific vendor.  
 By using interfaces, dependency injection, and concrete adapters, the project has evolved into a **more professional, flexible, and testable** architecture.
