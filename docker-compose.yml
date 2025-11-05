@@ -14,13 +14,22 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - "./.localstack:/var/lib/localstack"
-
+    networks:
+      - app-network
   ingestion-app:
-    build: .
+    image: ingestion:latest
     container_name: ingestion-app
-    env_file:
-      - .env
+    environment:
+      - S3_ENDPOINT_URL=http://localstack:4566
     ports:
       - "7070:7070"
     depends_on:
       - localstack
+    volumes:
+      - ingestion:/app
+    networks:
+      - app-network
+networks:
+  app-network:
+volumes:
+  ingestion:
