@@ -1,7 +1,6 @@
-package src.application.usecase;
+package com.ingestion.application.usecase;
 
-import src.application.ports.DatalakeRepository;
-
+import com.ingestion.application.ports.DatalakeStorage;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.*;
@@ -11,7 +10,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Random;
-import java.util.Set;
 import java.util.function.Function;
 
 public class IngestionService {
@@ -31,17 +29,15 @@ public class IngestionService {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    private final DatalakeRepository datalakeRepo;
+    private final DatalakeStorage datalakeStorage;
     private final Path stagingDir;
-    private final int totalBooks;
-    private final int maxRetries;
+
     private final Random rng = new Random();
 
-    public IngestionService(DatalakeRepository datalakeRepo, Path stagingDir, int totalBooks, int maxRetries) {
-        this.datalakeRepo = datalakeRepo;
+    public IngestionService(DatalakeStorage datalakeRepo, Path stagingDir) {
+        this.datalakeStorage = datalakeRepo;
         this.stagingDir = stagingDir.toAbsolutePath().normalize();
-        this.totalBooks = totalBooks;
-        this.maxRetries = maxRetries;
+
     }
 
     public boolean downloadBookToStaging(int bookId) {
@@ -82,42 +78,28 @@ public class IngestionService {
 
     public boolean moveToDatalake(int bookId, LocalDateTime ts) {
         try {
-            datalakeRepo.saveBook(bookId, stagingDir, ts);
+            datalakeStorage.saveBook(bookId, stagingDir, ts);
             return true;
         } catch (IOException e) {
             return false;
         }
     }
 
-    public boolean ingestOne(int bookId, LocalDateTime ts) {
-        if (!downloadBookToStaging(bookId)) return false;
-        return moveToDatalake(bookId, ts);
-    }
-
-    public boolean ingestNextRandom(Set<Integer> alreadyDownloaded, LocalDateTime ts) {
-        for (int i = 0; i < maxRetries; i++) {
-            int candidate = rng.nextInt(Math.max(1, totalBooks)) + 1;
-            if (alreadyDownloaded.contains(candidate)) continue;
-            if (ingestOne(candidate, ts)) return true;
-        }
-        return false;
-    }
-
     public boolean existsInDatalake(int bookId) {
         try {
-            return datalakeRepo.exists(bookId);
+            return datalakeStorage.exists(bookId);
         } catch (IOException e) {
             return false;
         }
     }
 
     public String relativePathFor(int bookId, LocalDateTime ts) {
-        return datalakeRepo.relativePathFor(bookId, ts);
+        return datalakeStorage.relativePathFor(bookId, ts);
     }
 
     public List<Integer> listBooks() {
         try {
-            return datalakeRepo.listBooks();
+            return datalakeStorage.listBooks();
         } catch (IOException e) {
             return List.of();
         }

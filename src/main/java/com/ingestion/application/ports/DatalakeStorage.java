@@ -1,11 +1,11 @@
-package src.application.ports;
+package com.ingestion.application.ports;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 
-public interface DatalakeRepository {
+public interface DatalakeStorage {
 
     void saveBook(int bookId, Path stagingDir, LocalDateTime timestamp) throws IOException;
 

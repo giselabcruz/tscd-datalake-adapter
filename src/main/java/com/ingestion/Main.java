@@ -1,81 +1,97 @@
-package src;
+package com.ingestion;
 
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.HttpStatus;
 
+import java.io.IOException;
+import java.net.URI;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.List;
+import com.ingestion.application.usecase.IngestionService;
+import com.ingestion.infrastructure.S3DatalakeStorage;
+import software.amazon.awssdk.annotations.NotNull;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3Configuration;
 
-import src.application.ports.DatalakeRepository;
-import src.application.usecase.IngestionService;
-import src.infrastructure.S3DatalakeRepository;
+import static software.amazon.awssdk.regions.Region.US_EAST_1;
 
 public class Main {
 
     private static final String STAGING_PATH = env("STAGING_PATH", "staging/downloads");
-    private static final String AWS_REGION   = env("AWS_REGION", "us-east-1");
+    private static final String AWS_REGION   = env("AWS_REGION", US_EAST_1.toString());
     private static final String S3_BUCKET    = env("S3_BUCKET", "my-bucket-datalake");
     private static final String S3_PREFIX    = env("S3_PREFIX", "datalake");
-    private static final int TOTAL_BOOKS     = intEnv("TOTAL_BOOKS", 100);
-    private static final int MAX_RETRIES     = intEnv("MAX_RETRIES", 10);
     private static final int PORT            = intEnv("PORT", 7070);
+    private static final String endpoint = env("S3_ENDPOINT_URL", "http://localhost:4566");
+    private static final String AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID","test");
+    private static final String AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY","test");
+
 
     private static IngestionService ingestionService;
 
     public static void main(String[] args) {
+        var app = ConfigServer();
+        app.start(PORT);
+        System.out.println("[API] Ingestion API running on http://localhost:" + PORT + "/");
+    }
+
+    private static Javalin ConfigServer() {
         System.out.println("[MAIN] Booting ingestion service + HTTP API...");
-        System.out.println("[CONF] REGION=" + AWS_REGION
-                + " BUCKET=" + S3_BUCKET
-                + " PREFIX=" + S3_PREFIX
-                + " STAGING_PATH=" + STAGING_PATH
-                + " TOTAL_BOOKS=" + TOTAL_BOOKS
-                + " MAX_RETRIES=" + MAX_RETRIES
-                + " PORT=" + PORT
-                + " S3_ENDPOINT_URL=" + env("S3_ENDPOINT_URL", "<none>")
-                + " LOCALSTACK_ENDPOINT=" + env("LOCALSTACK_ENDPOINT", "<none>")
-        );
-
-        try {
-            Files.createDirectories(Paths.get(STAGING_PATH));
-        } catch (Exception e) {
-            System.err.println("[ERROR] Could not create staging dir: " + e.getMessage());
-            return;
-        }
-
-        DatalakeRepository datalakeRepo = new S3DatalakeRepository(AWS_REGION, S3_BUCKET, S3_PREFIX);
-        ingestionService = new IngestionService(datalakeRepo, Paths.get(STAGING_PATH), TOTAL_BOOKS, MAX_RETRIES);
-
         Javalin app = Javalin.create(cfg -> {
             cfg.http.defaultContentType = "application/json";
             cfg.router.contextPath = "/";
         });
-
-        app.exception(Exception.class, (e, ctx) -> {
-            e.printStackTrace();
-            jsonError(ctx, HttpStatus.INTERNAL_SERVER_ERROR, "internal_error", e.getMessage());
-        });
-
-        app.start(PORT);
-
-        app.get("/health", ctx -> ctx.json(Map.of(
-                "status", "ok",
-                "backend", "S3",
-                "region", AWS_REGION,
-                "bucket", S3_BUCKET
-        )));
-        app.get("/config", Main::config);
-        app.post("/ingest/{book_id}", Main::downloadBook);
-        app.get("/ingest/status/{book_id}", Main::checkStatus);
-        app.get("/ingest/list", Main::listBooks);
-
-        System.out.println("[API] Ingestion API running on http://localhost:" + PORT + "/");
+        app.exception(Exception.class, Main::handleException);
+        try (var s3 = s3Client()) {
+            var s3DatalakeStorage = new S3DatalakeStorage(s3, S3_BUCKET, S3_PREFIX);
+            ingestionService = new IngestionService(s3DatalakeStorage, Paths.get(STAGING_PATH));
+            app.get("/health", ctx -> ctx.json(Map.of(
+                    "status", "ok",
+                    "backend", "S3",
+                    "region", AWS_REGION,
+                    "bucket", S3_BUCKET
+            )));
+            app.post("/ingest/{book_id}", Main::downloadBook);
+            app.get("/ingest/status/{book_id}", Main::checkStatus);
+            app.get("/ingest/list", Main::listBooks);
+            return app;
+        } catch (Exception e) {
+            throw new RuntimeException("Could not initialize ingestion service", e);
+        }
+    }
+    private static S3Client s3Client() {
+        return S3Client.builder()
+                .region(Region.of(AWS_REGION))
+                .endpointOverride(URI.create(endpoint))
+                .credentialsProvider(credentialsProvider())
+                .serviceConfiguration(S3Configuration.builder()
+                        .pathStyleAccessEnabled(true)
+                        .build())
+                .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .build();
     }
 
-    private static void downloadBook(Context ctx) {
+    @NotNull
+    private static AwsCredentialsProvider credentialsProvider() {
+        return StaticCredentialsProvider.create(
+                AwsBasicCredentials.create(
+                        AWS_ACCESS_KEY_ID,
+                        AWS_SECRET_ACCESS_KEY
+                )
+        );
+    }
+
+    private static void downloadBook(Context ctx) throws IOException {
+        Files.createDirectories(Paths.get(STAGING_PATH));
         Integer bookId = parseBookId(ctx);
         if (bookId == null) return;
 
@@ -127,19 +143,6 @@ public class Main {
                 "backend", "S3"
         ));
     }
-    private static void config(Context ctx) {
-        ctx.json(Map.of(
-                "region", AWS_REGION,
-                "bucket", S3_BUCKET,
-                "prefix", S3_PREFIX,
-                "staging_path", STAGING_PATH,
-                "total_books", TOTAL_BOOKS,
-                "max_retries", MAX_RETRIES,
-                "port", PORT,
-                "s3_endpoint_url", env("S3_ENDPOINT_URL", "<none>"),
-                "localstack_endpoint", env("LOCALSTACK_ENDPOINT", "<none>")
-        ));
-    }
 
     private static Integer parseBookId(Context ctx) {
         String raw = ctx.pathParam("book_id");
@@ -179,4 +182,10 @@ public class Main {
             return def;
         }
     }
+
+    private static void handleException(@org.jetbrains.annotations.NotNull Exception e, @org.jetbrains.annotations.NotNull Context ctx) {
+        e.printStackTrace();
+        jsonError(ctx, HttpStatus.INTERNAL_SERVER_ERROR, "internal_error", e.getMessage());
+    }
+
 }
